@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kasir-os-cache-v2';
+const CACHE_NAME = 'kasir-os-cache-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -15,7 +15,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: bersihin cache versi lama
+// Activate: bersihin cache versi lama & langsung ambil alih tab yang lagi kebuka
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -25,7 +25,9 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: app shell (file sendiri) pakai cache-first biar tetap kebuka offline.
+// Fetch: NETWORK-FIRST buat file sendiri (HTML/manifest/icon).
+// Tiap dibuka, coba ambil versi TERBARU dulu dari internet & update cache-nya.
+// Kalau gagal (beneran offline), baru jatuh ke versi terakhir yang tersimpan di cache.
 // Request ke Supabase (beda origin) DIBIARKAN LEWAT LANGSUNG ke network,
 // biar logic sinkron/offline-queue di app.js yang nanganin, bukan service worker.
 self.addEventListener('fetch', (event) => {
@@ -35,15 +37,12 @@ self.addEventListener('fetch', (event) => {
   if (!sameOrigin) return; // biarkan request ke Supabase apa adanya
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html'));
-    })
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
   );
 });
