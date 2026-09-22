@@ -458,6 +458,31 @@
       <button class="btn-clear" onclick="hapusLaporan()">📥 Arsipkan / Reset Laporan</button>
     </div>
 
+    <!-- MODAL HARI INI -->
+    <div class="card">
+      <h2>💰 Modal Hari Ini</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Modal beli bahan/stok hari ini (nominal boleh beda-beda tiap hari).</p>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="modalKet" placeholder="Keterangan (Modal Kopi, dll)">
+        <input type="number" id="modalNominal" style="width: 120px;" placeholder="Nominal">
+      </div>
+      <button class="btn-add" style="margin-top: 8px;" onclick="tambahModal()">+ Catat Modal</button>
+
+      <table style="max-height: 180px; display: block; overflow-y: auto; margin-top: 12px;">
+        <thead>
+          <tr style="display: table; width: 100%; table-layout: fixed;">
+            <th style="width: 65px;">Waktu</th>
+            <th>Keterangan</th>
+            <th style="width: 85px; text-align: right;">Nominal</th>
+            <th style="width: 40px; text-align: center;">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tabelModal" style="display: table; width: 100%; table-layout: fixed;"></tbody>
+      </table>
+
+      <div class="total-box" style="font-size: 16px; padding-top: 10px; border-top: 2px solid var(--light-color);">Total Modal Hari Ini: Rp <span id="totalModal">0</span></div>
+    </div>
+
     <!-- CATAT PENGELUARAN -->
     <div class="card">
       <h2>📝 Catat Pengeluaran</h2>
@@ -548,6 +573,7 @@
   let keranjang = [];
   let laporanHarian = [];
   let pengeluaranHarian = [];
+  let modalHarian = [];
   let currentCategory = 'all';
 
   window.addEventListener('DOMContentLoaded', async () => {
@@ -556,6 +582,7 @@
     await muatMasterData();
     await muatLaporanOnline();
     await muatPengeluaran();
+    await muatModal();
     await muatPin();
     await muatRiwayatLaporan();
     await muatLastReset();
@@ -576,6 +603,7 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'master_produk' }, () => muatMasterData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'laporan_transaksi' }, () => muatLaporanOnline())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pengeluaran' }, () => muatPengeluaran())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'modal_harian' }, () => muatModal())
       .subscribe();
   }
 
@@ -966,13 +994,16 @@
   }
 
   // ===================== SISTEM OFFLINE / ANTRIAN SINKRON =====================
-  let antrianOffline = { transaksi: [], pengeluaran: [] };
+  let antrianOffline = { transaksi: [], pengeluaran: [], modal: [] };
 
   function muatAntrianOffline() {
     try {
       const simpanan = JSON.parse(localStorage.getItem('antrian_offline'));
       if (simpanan) antrianOffline = simpanan;
-    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [] }; }
+    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [], modal: [] }; }
+    if (!antrianOffline.modal) antrianOffline.modal = [];
+    if (!antrianOffline.transaksi) antrianOffline.transaksi = [];
+    if (!antrianOffline.pengeluaran) antrianOffline.pengeluaran = [];
   }
 
   function simpanAntrianKeStorage() {
@@ -1006,18 +1037,27 @@
     }
     antrianOffline.pengeluaran = sisaPengeluaran;
 
+    const sisaModal = [];
+    for (const m of antrianOffline.modal) {
+      const dataBersih = { ...m }; delete dataBersih._pending;
+      const { error } = await _supabase.from('modal_harian').insert([dataBersih]);
+      if (error) sisaModal.push(m); else adaYangSukses = true;
+    }
+    antrianOffline.modal = sisaModal;
+
     simpanAntrianKeStorage();
     updateStatusBadge();
 
     if (adaYangSukses) {
       muatLaporanOnline();
       muatPengeluaran();
+      muatModal();
       muatRiwayatLaporan();
     }
   }
 
   function jumlahAntrian() {
-    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length;
+    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length + antrianOffline.modal.length;
   }
 
   function updateStatusBadge() {
@@ -1077,7 +1117,8 @@
   function hitungLabaBersih() {
     const omset = laporanHarian.reduce((sum, t) => sum + t.total, 0);
     const pengeluaran = pengeluaranHarian.reduce((sum, p) => sum + p.nominal, 0);
-    document.getElementById('labaBersih').innerText = (omset - pengeluaran).toLocaleString('id-ID');
+    const modal = modalHarian.reduce((sum, m) => sum + m.nominal, 0);
+    document.getElementById('labaBersih').innerText = (omset - pengeluaran - modal).toLocaleString('id-ID');
   }
 
   async function muatPengeluaran() {
@@ -1159,6 +1200,87 @@
         </tr>`;
     });
     document.getElementById('totalPengeluaran').innerText = total.toLocaleString();
+    hitungLabaBersih();
+  }
+
+  async function muatModal() {
+    if (!navigator.onLine) return;
+    const { data, error } = await _supabase.from('modal_harian').select('*').order('created_at', { ascending: false });
+    if (!error && data) {
+      modalHarian = data;
+      renderModal();
+    }
+  }
+
+  async function tambahModal() {
+    const keterangan = document.getElementById('modalKet').value.trim();
+    const nominal = parseInt(document.getElementById('modalNominal').value);
+
+    if (!keterangan || isNaN(nominal) || nominal <= 0) { alert('Isi keterangan dan nominal dengan benar!'); return; }
+
+    const now = new Date();
+    const waktu = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const tanggal = now.toLocaleDateString('id-ID');
+    const itemBaru = { id: Date.now(), keterangan, nominal, tanggal, waktu };
+
+    const bersihkanForm = () => {
+      document.getElementById('modalKet').value = '';
+      document.getElementById('modalNominal').value = '';
+    };
+
+    if (!navigator.onLine) {
+      itemBaru._pending = true;
+      simpanKeAntrianOffline('modal', itemBaru);
+      modalHarian.unshift(itemBaru);
+      renderModal();
+      bersihkanForm();
+      return;
+    }
+
+    try {
+      const { error } = await _supabase.from('modal_harian').insert([itemBaru]);
+      if (!error) {
+        bersihkanForm();
+        muatModal();
+      } else {
+        itemBaru._pending = true;
+        simpanKeAntrianOffline('modal', itemBaru);
+        modalHarian.unshift(itemBaru);
+        renderModal();
+        bersihkanForm();
+      }
+    } catch (e) {
+      itemBaru._pending = true;
+      simpanKeAntrianOffline('modal', itemBaru);
+      modalHarian.unshift(itemBaru);
+      renderModal();
+      bersihkanForm();
+    }
+  }
+
+  async function hapusModal(id) {
+    if (prompt('Masukkan PIN Keamanan:') === PIN_RAHASIA) {
+      const { error } = await _supabase.from('modal_harian').delete().eq('id', id);
+      if (!error) muatModal();
+    } else { alert('PIN Salah!'); }
+  }
+
+  function renderModal() {
+    const tbody = document.getElementById('tabelModal'); tbody.innerHTML = '';
+    let total = 0;
+    modalHarian.forEach(m => {
+      total += m.nominal;
+      tbody.innerHTML += `
+        <tr style="display: table; width: 100%; table-layout: fixed;">
+          <td style="width: 65px;">${m._pending ? '⏳ ' : ''}${m.waktu}</td>
+          <td>${m.keterangan}</td>
+          <td style="width: 85px; text-align: right;">Rp ${m.nominal.toLocaleString()}</td>
+          <td style="width: 40px; text-align: center;">
+            <button class="btn-del-item" onclick="hapusModal(${m.id})">✕</button>
+          </td>
+        </tr>`;
+    });
+    document.getElementById('totalModal').innerText = total.toLocaleString();
     hitungLabaBersih();
   }
 
