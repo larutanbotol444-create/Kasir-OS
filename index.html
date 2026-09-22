@@ -433,16 +433,27 @@
   <!-- PAGE: LAPORAN -->
   <div id="page-laporan" class="page-content">
 
+    <!-- RINGKASAN HARI INI (HASIL AKHIR) -->
+    <div class="card" style="border: 2px solid var(--primary-color);">
+      <h2>🧾 Ringkasan Hari Ini</h2>
+      <table style="width: 100%;">
+        <tr><td>Kas Awal</td><td style="text-align:right;">Rp <span id="ringkasanKasAwal">0</span></td></tr>
+        <tr><td>Omset Penjualan</td><td style="text-align:right; color:#27ae60;">+ Rp <span id="ringkasanOmset">0</span></td></tr>
+        <tr><td>Pengeluaran</td><td style="text-align:right; color:#e74c3c;">- Rp <span id="ringkasanPengeluaran">0</span></td></tr>
+      </table>
+      <div class="total-box" style="font-size: 15px; padding-top: 10px; border-top: 1px solid var(--light-color);">Laba Bersih: Rp <span id="labaBersih">0</span></div>
+      <div class="total-box" style="font-size: 20px; color: var(--primary-color);">💰 Kas Akhir di Laci: Rp <span id="kasAkhir">0</span></div>
+      <p style="color:#aaa; font-size: 11px; margin-bottom: 0;">*Kas Akhir = Kas Awal + Omset - Pengeluaran (asumsi semua transaksi tunai)</p>
+    </div>
+
     <!-- KAS AWAL / KEMBALIAN -->
     <div class="card">
       <h2>💵 Kas Awal Hari Ini</h2>
-      <p style="color:#888; font-size: 13px; margin-top: -8px;">Uang modal kembalian di kotak kasir (bukan pengeluaran, gak ngaruh ke Laba Bersih). Diisi ulang tiap hari.</p>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Uang modal kembalian di kotak kasir. Diisi ulang tiap hari.</p>
       <div style="display: flex; gap: 8px;">
         <input type="number" id="kasAwalInput" placeholder="Contoh: 20000">
         <button class="btn-add" style="width: 100px;" onclick="simpanKasAwal()">Simpan</button>
       </div>
-      <div class="total-box" style="font-size: 15px; padding-top: 10px; border-top: 2px solid var(--light-color);">Estimasi Kas di Laci Sekarang: Rp <span id="estimasiKas">0</span></div>
-      <p style="color:#aaa; font-size: 11px; margin-bottom: 0;">*Estimasi = Kas Awal + Omset hari ini (asumsi semua transaksi tunai)</p>
     </div>
 
     <div class="card">
@@ -501,7 +512,6 @@
       </table>
 
       <div class="total-box" style="font-size: 16px; padding-top: 10px; border-top: 2px solid var(--light-color);">Total Pengeluaran: Rp <span id="totalPengeluaran">0</span></div>
-      <div class="total-box" style="font-size: 18px; color: #27ae60;">Laba Bersih: Rp <span id="labaBersih">0</span></div>
     </div>
   </div>
   <!-- END PAGE LAPORAN -->
@@ -947,8 +957,7 @@
         </tr>`;
     });
     document.getElementById('totalOmset').innerText = omset.toLocaleString();
-    hitungLabaBersih();
-    updateEstimasiKas();
+    renderRingkasan();
     renderProdukFavorit();
     renderRiwayatPesanan();
   }
@@ -1091,10 +1100,18 @@
     });
   }
 
-  function hitungLabaBersih() {
+  function renderRingkasan() {
     const omset = laporanHarian.reduce((sum, t) => sum + t.total, 0);
     const pengeluaran = pengeluaranHarian.reduce((sum, p) => sum + p.nominal, 0);
-    document.getElementById('labaBersih').innerText = (omset - pengeluaran).toLocaleString('id-ID');
+    const laba = omset - pengeluaran;
+    const kasAkhirNilai = kasAwal.nominal + omset - pengeluaran;
+
+    const el = (id) => document.getElementById(id);
+    if (el('ringkasanKasAwal')) el('ringkasanKasAwal').innerText = kasAwal.nominal.toLocaleString('id-ID');
+    if (el('ringkasanOmset')) el('ringkasanOmset').innerText = omset.toLocaleString('id-ID');
+    if (el('ringkasanPengeluaran')) el('ringkasanPengeluaran').innerText = pengeluaran.toLocaleString('id-ID');
+    if (el('labaBersih')) el('labaBersih').innerText = laba.toLocaleString('id-ID');
+    if (el('kasAkhir')) el('kasAkhir').innerText = kasAkhirNilai.toLocaleString('id-ID');
   }
 
   async function muatPengeluaran() {
@@ -1185,7 +1202,7 @@
         </tr>`;
     });
     document.getElementById('totalPengeluaran').innerText = total.toLocaleString();
-    hitungLabaBersih();
+    renderRingkasan();
   }
 
   async function hapusItemLaporan(id) {
@@ -1228,7 +1245,7 @@
         kasAwal = { tanggal: cache.tanggal, nominal: cache.nominal };
         document.getElementById('kasAwalInput').value = kasAwal.nominal;
       }
-      updateEstimasiKas();
+      renderRingkasan();
       return;
     }
 
@@ -1251,7 +1268,7 @@
         document.getElementById('kasAwalInput').value = kasAwal.nominal;
       }
     }
-    updateEstimasiKas();
+    renderRingkasan();
   }
 
   async function simpanKasAwal() {
@@ -1261,7 +1278,7 @@
 
     // Selalu simpan ke penyimpanan lokal dulu, biar gak hilang walau offline
     localStorage.setItem('cache_kas_awal', JSON.stringify({ tanggal: sekarang, nominal, pending: true }));
-    updateEstimasiKas();
+    renderRingkasan();
 
     if (!navigator.onLine) { updateStatusBadge(); return; }
 
@@ -1288,13 +1305,6 @@
     if (!error) {
       localStorage.setItem('cache_kas_awal', JSON.stringify({ ...cache, pending: false }));
     }
-  }
-
-  function updateEstimasiKas() {
-    const el = document.getElementById('estimasiKas');
-    if (!el) return;
-    const omset = laporanHarian.reduce((sum, t) => sum + t.total, 0);
-    el.innerText = (kasAwal.nominal + omset).toLocaleString('id-ID');
   }
 
   async function simpanWaktuReset() {
@@ -1439,7 +1449,19 @@
       pesan += `   *Total:* Rp ${t.total.toLocaleString()}\n\n`;
       totalOmset += t.total;
     });
-    pesan += `------------------------------------\n*TOTAL OMSET:* Rp ${totalOmset.toLocaleString()}\n`;
+
+    const totalPengeluaranWA = pengeluaranHarian.reduce((sum, p) => sum + p.nominal, 0);
+    const labaBersihWA = totalOmset - totalPengeluaranWA;
+    const kasAkhirWA = kasAwal.nominal + totalOmset - totalPengeluaranWA;
+
+    pesan += `------------------------------------\n`;
+    pesan += `*RINGKASAN*\n`;
+    pesan += `Kas Awal: Rp ${kasAwal.nominal.toLocaleString()}\n`;
+    pesan += `Omset Penjualan: Rp ${totalOmset.toLocaleString()}\n`;
+    pesan += `Pengeluaran: Rp ${totalPengeluaranWA.toLocaleString()}\n`;
+    pesan += `*Laba Bersih:* Rp ${labaBersihWA.toLocaleString()}\n`;
+    pesan += `*Kas Akhir di Laci (estimasi): Rp ${kasAkhirWA.toLocaleString()}*\n`;
+
     window.open(`https://wa.me/${noWA}?text=${encodeURIComponent(pesan)}`, '_blank');
   }
 
