@@ -34,6 +34,42 @@
       --card-bg: #1c1f24;
       --border-color: #2a2d34;
     }
+    body.theme-dark-blue {
+      --bg-color: #12181f;
+      --primary-color: #5aa9d6;
+      --light-color: #1c2530;
+      --dark-color: #3d87b0;
+      --text-color: #d6e2ea;
+      --card-bg: #182029;
+      --border-color: #26313d;
+    }
+    body.theme-dark-green {
+      --bg-color: #101814;
+      --primary-color: #56c295;
+      --light-color: #1a2620;
+      --dark-color: #3c9d70;
+      --text-color: #d3e6dc;
+      --card-bg: #16211b;
+      --border-color: #24352c;
+    }
+    body.theme-dark-purple {
+      --bg-color: #16121e;
+      --primary-color: #b389e0;
+      --light-color: #241d30;
+      --dark-color: #9268c4;
+      --text-color: #ded6e8;
+      --card-bg: #1d1728;
+      --border-color: #2f2740;
+    }
+    body.theme-dark-rose {
+      --bg-color: #1a1214;
+      --primary-color: #e08a9b;
+      --light-color: #2a1e21;
+      --dark-color: #c26b7d;
+      --text-color: #e8d8db;
+      --card-bg: #221a1d;
+      --border-color: #362729;
+    }
     body.theme-blue {
       --bg-color: #f4f7f6;
       --primary-color: #3498db;
@@ -278,9 +314,13 @@
             <label>Pilih Tema Warna</label>
             <select id="settingTheme" onchange="applyTheme()">
               <option value="default">Kuning Estetik (Default)</option>
-              <option value="theme-dark">Dark Mode</option>
               <option value="theme-blue">Ocean Blue</option>
               <option value="theme-green">Emerald Green</option>
+              <option value="theme-dark">Dark Mode - Gold</option>
+              <option value="theme-dark-blue">Dark Mode - Ocean</option>
+              <option value="theme-dark-green">Dark Mode - Emerald</option>
+              <option value="theme-dark-purple">Dark Mode - Midnight Purple</option>
+              <option value="theme-dark-rose">Dark Mode - Rose</option>
             </select>
           </div>
         </div>
@@ -485,6 +525,7 @@
     <!-- CATAT PENGELUARAN -->
     <div class="card">
       <h2>📝 Catat Pengeluaran</h2>
+      <p id="infoAutoResetPengeluaran" style="font-size: 12px; color: #888; margin-top: -8px;"></p>
       <div style="display: flex; gap: 8px;">
         <input type="text" id="pengeluaranKet" placeholder="Keterangan (Beli Gas, dll)">
         <select id="pengeluaranKategori" style="width: 120px;">
@@ -1365,14 +1406,17 @@
   }
 
   function updateInfoAutoReset() {
-    const el = document.getElementById('infoAutoReset');
-    if (!el) return;
     const now = new Date();
     const tengahMalam = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0);
     const sisaMs = tengahMalam - now;
     const sisaJam = Math.floor(sisaMs / (1000 * 60 * 60));
     const sisaMenit = Math.floor((sisaMs / (1000 * 60)) % 60);
-    el.innerText = `⏳ Reset otomatis pukul 00:00 (${sisaJam} jam ${sisaMenit} menit lagi)`;
+    const teks = `⏳ Reset otomatis pukul 00:00 (${sisaJam} jam ${sisaMenit} menit lagi)`;
+
+    const el1 = document.getElementById('infoAutoReset');
+    if (el1) el1.innerText = teks;
+    const el2 = document.getElementById('infoAutoResetPengeluaran');
+    if (el2) el2.innerText = teks;
   }
 
   async function muatPin() {
