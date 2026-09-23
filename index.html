@@ -625,7 +625,7 @@
     await muatRiwayatLaporan();
     await muatLastReset();
     listenRealtimeChanges();
-    setInterval(cekAutoReset, 60000);
+    setInterval(() => cekAutoReset(true), 60000);
     updateStatusBadge();
     if (navigator.onLine) { sinkronAntrianOffline(); sinkronKasAwal(); }
 
@@ -1382,12 +1382,27 @@
     await cekAutoReset();
   }
 
-  async function cekAutoReset() {
+  async function cekAutoReset(isPeriodic = false) {
     if (!lastResetDate) return;
     if (!navigator.onLine) { updateInfoAutoReset(); return; }
+    const now = new Date();
     const sekarang = tanggalHariIni();
 
-    if (sekarang !== lastResetDate) {
+    // FIX: reset cuma boleh jalan kalau tanggal SEKARANG memang lebih baru
+    // dari tanggal reset terakhir (bukan cuma "beda"). Ini mencegah reset
+    // tiba-tiba gara-gara jam/tanggal HP salah (mundur, atau ke-ubah sesaat).
+    if (sekarang <= lastResetDate) { updateInfoAutoReset(); return; }
+
+    // FIX: pengecekan berkala (setInterval tiap 60 detik selagi app tetap
+    // terbuka) cuma boleh eksekusi reset kalau memang baru lewat tengah
+    // malam (jam 00:xx). Kalau bukan, berarti kemungkinan besar tanggal HP
+    // yang keliru di tengah hari — jangan sampai laporan yang lagi
+    // berlangsung ikut ke-arsipkan. Pengecekan saat app baru dibuka
+    // (isPeriodic = false) tetap jalan normal, biar laporan hari
+    // sebelumnya yang belum sempat ke-reset tetap otomatis diarsipkan.
+    if (isPeriodic && now.getHours() !== 0) { updateInfoAutoReset(); return; }
+
+    {
       if (laporanHarian.length > 0) {
         const idList = laporanHarian.map(t => t.id);
         await _supabase.from('laporan_transaksi').update({ arsip: true }).in('id', idList);
@@ -1400,8 +1415,6 @@
         muatPengeluaran();
       }
       await simpanWaktuReset();
-    } else {
-      updateInfoAutoReset();
     }
   }
 
