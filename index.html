@@ -614,16 +614,42 @@
   let pengeluaranHarian = [];
   let currentCategory = 'all';
 
+  // FIX: helper simpan ke localStorage yang aman. localStorage punya batas
+  // kapasitas (~5-10MB); kalau data cache kelewat besar (misal riwayat
+  // laporan atau gambar produk numpuk seiring waktu), setItem bisa gagal
+  // dan throw error. Kalau nggak ditangkap, error itu bisa bikin proses
+  // yang lagi jalan (termasuk inisialisasi awal app) ikut berhenti tanpa
+  // pesan apapun. Jadi semua penyimpanan cache lewat fungsi ini.
+  function simpanCacheAman(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn('Gagal simpan cache ke localStorage (kemungkinan penuh):', key, e);
+    }
+  }
+
+  // FIX: bungkus tiap langkah startup biar independen. Sebelumnya kalau
+  // salah satu langkah (misal muatRiwayatLaporan) gagal/throw, semua
+  // langkah SETELAHNYA (termasuk listenRealtimeChanges & cekAutoReset)
+  // ikut nggak jalan sama sekali, tanpa pesan error apapun ke user.
+  async function jalankanLangkahAman(nama, fn) {
+    try {
+      await fn();
+    } catch (e) {
+      console.warn(`Langkah startup "${nama}" gagal, lanjut ke langkah berikutnya:`, e);
+    }
+  }
+
   window.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
     muatAntrianOffline();
-    await muatMasterData();
-    await muatLaporanOnline();
-    await muatPengeluaran();
-    await muatKasAwal();
-    await muatPin();
-    await muatRiwayatLaporan();
-    await muatLastReset();
+    await jalankanLangkahAman('muatMasterData', muatMasterData);
+    await jalankanLangkahAman('muatLaporanOnline', muatLaporanOnline);
+    await jalankanLangkahAman('muatPengeluaran', muatPengeluaran);
+    await jalankanLangkahAman('muatKasAwal', muatKasAwal);
+    await jalankanLangkahAman('muatPin', muatPin);
+    await jalankanLangkahAman('muatRiwayatLaporan', muatRiwayatLaporan);
+    await jalankanLangkahAman('muatLastReset', muatLastReset);
     listenRealtimeChanges();
     setInterval(() => cekAutoReset(true), 60000);
     updateStatusBadge();
@@ -647,8 +673,8 @@
   function saveSettings() {
     const storeName = document.getElementById('settingStoreName').value || 'KASIR OS';
     const theme = document.getElementById('settingTheme').value;
-    localStorage.setItem('settings_store_name', storeName);
-    localStorage.setItem('settings_theme', theme);
+    simpanCacheAman('settings_store_name', storeName);
+    simpanCacheAman('settings_theme', theme);
     document.getElementById('headerStoreName').innerText = storeName.toUpperCase();
   }
 
@@ -699,7 +725,7 @@
     const { data, error } = await _supabase.from('master_produk').select('*').order('created_at', { ascending: false });
     if (!error && data) {
       masterProduk = data;
-      localStorage.setItem('cache_master_produk', JSON.stringify(data));
+      simpanCacheAman('cache_master_produk', JSON.stringify(data));
       renderMasterProduk();
       renderGridProduk();
     } else {
@@ -975,7 +1001,7 @@
     const { data, error } = await _supabase.from('laporan_transaksi').select('*').eq('arsip', false).order('created_at', { ascending: false });
     if (!error && data) {
       laporanHarian = data;
-      localStorage.setItem('cache_laporan_harian', JSON.stringify(data));
+      simpanCacheAman('cache_laporan_harian', JSON.stringify(data));
       renderLaporan();
     }
   }
@@ -1043,7 +1069,7 @@
   }
 
   function simpanAntrianKeStorage() {
-    localStorage.setItem('antrian_offline', JSON.stringify(antrianOffline));
+    simpanCacheAman('antrian_offline', JSON.stringify(antrianOffline));
   }
 
   function simpanKeAntrianOffline(jenis, data) {
@@ -1164,7 +1190,7 @@
     const { data, error } = await _supabase.from('pengeluaran').select('*').eq('arsip', false).order('created_at', { ascending: false });
     if (!error && data) {
       pengeluaranHarian = data;
-      localStorage.setItem('cache_pengeluaran', JSON.stringify(data));
+      simpanCacheAman('cache_pengeluaran', JSON.stringify(data));
       renderPengeluaran();
     } else {
       const cache = localStorage.getItem('cache_pengeluaran');
@@ -1306,7 +1332,7 @@
         kasAwal = { tanggal: sekarang, nominal: 0 };
         document.getElementById('kasAwalInput').value = '';
       }
-      localStorage.setItem('cache_kas_awal', JSON.stringify({ ...kasAwal, pending: false }));
+      simpanCacheAman('cache_kas_awal', JSON.stringify({ ...kasAwal, pending: false }));
     } else {
       const cache = JSON.parse(localStorage.getItem('cache_kas_awal') || 'null');
       if (cache && cache.tanggal === sekarang) {
@@ -1323,7 +1349,7 @@
     kasAwal = { tanggal: sekarang, nominal };
 
     // Selalu simpan ke penyimpanan lokal dulu, biar gak hilang walau offline
-    localStorage.setItem('cache_kas_awal', JSON.stringify({ tanggal: sekarang, nominal, pending: true }));
+    simpanCacheAman('cache_kas_awal', JSON.stringify({ tanggal: sekarang, nominal, pending: true }));
     renderRingkasan();
 
     if (!navigator.onLine) { updateStatusBadge(); return; }
@@ -1334,7 +1360,7 @@
         { key: 'kas_awal_nominal', value: String(nominal) }
       ]);
       if (!error) {
-        localStorage.setItem('cache_kas_awal', JSON.stringify({ tanggal: sekarang, nominal, pending: false }));
+        simpanCacheAman('cache_kas_awal', JSON.stringify({ tanggal: sekarang, nominal, pending: false }));
       }
     } catch (e) { /* biarin tetap pending, disinkron nanti pas online */ }
   }
@@ -1349,14 +1375,14 @@
       { key: 'kas_awal_nominal', value: String(cache.nominal) }
     ]);
     if (!error) {
-      localStorage.setItem('cache_kas_awal', JSON.stringify({ ...cache, pending: false }));
+      simpanCacheAman('cache_kas_awal', JSON.stringify({ ...cache, pending: false }));
     }
   }
 
   async function simpanWaktuReset() {
     lastResetDate = tanggalHariIni();
     await _supabase.from('pengaturan').upsert({ key: 'last_reset_date', value: lastResetDate });
-    localStorage.setItem('cache_last_reset_date', lastResetDate);
+    simpanCacheAman('cache_last_reset_date', lastResetDate);
     updateInfoAutoReset();
   }
 
@@ -1370,11 +1396,11 @@
     const { data, error } = await _supabase.from('pengaturan').select('*').eq('key', 'last_reset_date').maybeSingle();
     if (!error && data && data.value) {
       lastResetDate = data.value;
-      localStorage.setItem('cache_last_reset_date', lastResetDate);
+      simpanCacheAman('cache_last_reset_date', lastResetDate);
     } else if (!error) {
       lastResetDate = tanggalHariIni();
       await _supabase.from('pengaturan').upsert({ key: 'last_reset_date', value: lastResetDate });
-      localStorage.setItem('cache_last_reset_date', lastResetDate);
+      simpanCacheAman('cache_last_reset_date', lastResetDate);
     } else {
       const cache = localStorage.getItem('cache_last_reset_date');
       if (cache) lastResetDate = cache;
@@ -1441,10 +1467,10 @@
     const { data, error } = await _supabase.from('pengaturan').select('*').eq('key', 'pin_owner').maybeSingle();
     if (!error && data) {
       PIN_RAHASIA = data.value;
-      localStorage.setItem('cache_pin', PIN_RAHASIA);
+      simpanCacheAman('cache_pin', PIN_RAHASIA);
     } else if (!error && !data) {
       await _supabase.from('pengaturan').upsert({ key: 'pin_owner', value: PIN_RAHASIA });
-      localStorage.setItem('cache_pin', PIN_RAHASIA);
+      simpanCacheAman('cache_pin', PIN_RAHASIA);
     } else {
       const cache = localStorage.getItem('cache_pin');
       if (cache) PIN_RAHASIA = cache;
@@ -1479,7 +1505,7 @@
     const { error } = await _supabase.from('pengaturan').upsert({ key: 'pin_owner', value: baru });
     if (!error) {
       PIN_RAHASIA = baru;
-      localStorage.setItem('cache_pin', PIN_RAHASIA);
+      simpanCacheAman('cache_pin', PIN_RAHASIA);
       document.getElementById('pinLama').value = '';
       document.getElementById('pinBaru').value = '';
       alert('PIN berhasil diganti!');
@@ -1550,9 +1576,15 @@
       return;
     }
 
-    const { data, error } = await _supabase.from('laporan_transaksi').select('*').order('created_at', { ascending: false });
+    // FIX: dulu query ini narik SEMUA transaksi sejak toko pertama buka,
+    // tanpa batas. Makin lama usaha jalan, data ini makin besar dan cache-nya
+    // di localStorage bisa kelebihan kapasitas. Sekarang dibatasi cuma
+    // 90 hari terakhir, lebih dari cukup buat kebutuhan "riwayat".
+    const batasWaktu = new Date();
+    batasWaktu.setDate(batasWaktu.getDate() - 90);
+    const { data, error } = await _supabase.from('laporan_transaksi').select('*').gte('created_at', batasWaktu.toISOString()).order('created_at', { ascending: false });
     if (!error && data) {
-      localStorage.setItem('cache_riwayat_laporan', JSON.stringify(data));
+      simpanCacheAman('cache_riwayat_laporan', JSON.stringify(data));
       bangunGrup(data);
     } else {
       const cache = localStorage.getItem('cache_riwayat_laporan');
