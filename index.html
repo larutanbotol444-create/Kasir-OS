@@ -292,6 +292,9 @@
   <button class="drawer-item" id="navBtn-riwayat" onclick="gantiHalaman('riwayat')">
     <span class="nav-icon">🗂️</span> Riwayat Laporan
   </button>
+  <button class="drawer-item" id="navBtn-stok" onclick="gantiHalaman('stok')">
+    <span class="nav-icon">📋</span> Stok
+  </button>
   <button class="drawer-item" id="navBtn-produk" onclick="gantiHalaman('produk')">
     <span class="nav-icon">📦</span> Produk
   </button>
@@ -501,7 +504,7 @@
       <p id="infoAutoReset" style="font-size: 12px; color: #888; margin: -8px 0 8px;"></p>
       <div class="form-group">
         <label>No. WhatsApp Penerima Laporan</label>
-        <input type="text" id="noWA" placeholder="Contoh: 628123456789">
+        <input type="text" id="noWA" placeholder="Contoh: 628123456789" onchange="simpanNoWA()">
       </div>
 
       <table style="max-height: 300px; display: block; overflow-y: auto;">
@@ -564,8 +567,46 @@
       <p style="color:#888; font-size: 13px; margin-top: -8px;">Semua transaksi tetap tersimpan di sini per tanggal, walaupun sudah di-reset dari Laporan Hari Ini.</p>
       <div id="daftarRiwayatLaporan"></div>
     </div>
+
+    <div class="card">
+      <h2>🗂️ Riwayat Pengeluaran</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Semua pengeluaran tetap tersimpan di sini per tanggal, walaupun sudah di-reset dari hari ini.</p>
+      <div id="daftarRiwayatPengeluaran"></div>
+    </div>
   </div>
   <!-- END PAGE RIWAYAT -->
+
+  <!-- PAGE: STOK (SECTION TERSENDIRI, TERPISAH DARI RIWAYAT LAPORAN) -->
+  <div id="page-stok" class="page-content">
+    <div class="card">
+      <h2>📋 Catat Stok Hari Ini</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Contoh: Cup, Bakaran, dll. Direset ulang tiap hari (ikut Arsipkan/Reset Laporan).</p>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="stokNama" placeholder="Nama barang (Cup, Bakaran, dll)">
+        <input type="number" id="stokJumlah" style="width: 100px;" placeholder="Jumlah">
+      </div>
+      <button class="btn-add" style="margin-top: 8px;" onclick="tambahStok()">+ Catat Stok</button>
+
+      <table style="max-height: 220px; display: block; overflow-y: auto; margin-top: 12px;">
+        <thead>
+          <tr style="display: table; width: 100%; table-layout: fixed;">
+            <th style="width: 65px;">Waktu</th>
+            <th>Nama Barang</th>
+            <th style="width: 70px; text-align: right;">Jumlah</th>
+            <th style="width: 40px; text-align: center;">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tabelStok" style="display: table; width: 100%; table-layout: fixed;"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>🗂️ Riwayat Stok</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Catatan stok harian yang sudah lewat, tersimpan per tanggal di sini (section sendiri, terpisah dari Riwayat Laporan).</p>
+      <div id="daftarRiwayatStok"></div>
+    </div>
+  </div>
+  <!-- END PAGE STOK -->
 
 <!-- AREA CETAK STRUK THERMAL -->
 <div id="receipt-print">
@@ -612,6 +653,7 @@
   let keranjang = [];
   let laporanHarian = [];
   let pengeluaranHarian = [];
+  let stokHarian = [];
   let currentCategory = 'all';
 
   // FIX: helper simpan ke localStorage yang aman. localStorage punya batas
@@ -646,10 +688,14 @@
     await jalankanLangkahAman('muatMasterData', muatMasterData);
     await jalankanLangkahAman('muatLaporanOnline', muatLaporanOnline);
     await jalankanLangkahAman('muatPengeluaran', muatPengeluaran);
+    await jalankanLangkahAman('muatStok', muatStok);
     await jalankanLangkahAman('muatKasAwal', muatKasAwal);
     await jalankanLangkahAman('muatPin', muatPin);
     await jalankanLangkahAman('muatRiwayatLaporan', muatRiwayatLaporan);
+    await jalankanLangkahAman('muatRiwayatPengeluaran', muatRiwayatPengeluaran);
+    await jalankanLangkahAman('muatRiwayatStok', muatRiwayatStok);
     await jalankanLangkahAman('muatLastReset', muatLastReset);
+    await jalankanLangkahAman('muatNoWA', muatNoWA);
     listenRealtimeChanges();
     setInterval(() => cekAutoReset(true), 60000);
     updateStatusBadge();
@@ -666,7 +712,8 @@
       .channel('schema-db-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'master_produk' }, () => muatMasterData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'laporan_transaksi' }, () => muatLaporanOnline())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pengeluaran' }, () => muatPengeluaran())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pengeluaran' }, () => { muatPengeluaran(); muatRiwayatPengeluaran(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stok_harian' }, () => { muatStok(); muatRiwayatStok(); })
       .subscribe();
   }
 
@@ -816,7 +863,7 @@
         <tr>
           <td>${imgPreview}<b>${p.nama}</b></td>
           <td>${katIcon}</td>
-          <td>Rp ${p.harga.toLocaleString()}</td>
+          <td>Rp ${p.harga.toLocaleString('id-ID')}</td>
           <td style="text-align: right; white-space: nowrap;">
             <button class="btn-edit-item" onclick="persiapkanEditMaster(${p.id})">✏️ Edit</button>
             <button class="btn-del-item" onclick="hapusMasterProduk(${p.id})">✕ Hapus</button>
@@ -850,7 +897,7 @@
         <button class="btn-product" onclick="pilihProduk('${p.nama}', ${p.harga})">
           ${imgTag}
           <div>${p.nama}</div>
-          <span>Rp ${p.harga.toLocaleString()}</span>
+          <span>Rp ${p.harga.toLocaleString('id-ID')}</span>
         </button>`;
     });
     renderProdukFavorit();
@@ -875,9 +922,9 @@
     let total = 0;
     keranjang.forEach((item, index) => {
       total += item.subtotal;
-      tbody.innerHTML += `<tr><td>${item.nama}</td><td style="text-align: center;"><button class="qty-btn" onclick="ubahQty(${index}, -1)">-</button> <span style="display:inline-block; width:20px; text-align:center;">${item.qty}</span> <button class="qty-btn" onclick="ubahQty(${index}, 1)">+</button></td><td>Rp ${item.subtotal.toLocaleString()}</td><td style="text-align: center;"><button class="btn-del-item" onclick="ubahQty(${index}, -${item.qty})">x</button></td></tr>`;
+      tbody.innerHTML += `<tr><td>${item.nama}</td><td style="text-align: center;"><button class="qty-btn" onclick="ubahQty(${index}, -1)">-</button> <span style="display:inline-block; width:20px; text-align:center;">${item.qty}</span> <button class="qty-btn" onclick="ubahQty(${index}, 1)">+</button></td><td>Rp ${item.subtotal.toLocaleString('id-ID')}</td><td style="text-align: center;"><button class="btn-del-item" onclick="ubahQty(${index}, -${item.qty})">x</button></td></tr>`;
     });
-    document.getElementById('totalKeranjang').innerText = total.toLocaleString();
+    document.getElementById('totalKeranjang').innerText = total.toLocaleString('id-ID');
     prosesKembalian();
   }
 
@@ -982,12 +1029,12 @@
     transaksi.items.forEach(i => {
       itemsTbody.innerHTML += `
         <tr><td colspan="2">${i.nama}</td></tr>
-        <tr><td>${i.qty} x Rp ${i.harga.toLocaleString()}</td><td style="text-align:right;">Rp ${i.subtotal.toLocaleString()}</td></tr>`;
+        <tr><td>${i.qty} x Rp ${i.harga.toLocaleString('id-ID')}</td><td style="text-align:right;">Rp ${i.subtotal.toLocaleString('id-ID')}</td></tr>`;
     });
 
-    document.getElementById('printTotal').innerText = transaksi.total.toLocaleString();
-    document.getElementById('printBayar').innerText = transaksi.bayar.toLocaleString();
-    document.getElementById('printKembali').innerText = transaksi.kembalian.toLocaleString();
+    document.getElementById('printTotal').innerText = transaksi.total.toLocaleString('id-ID');
+    document.getElementById('printBayar').innerText = transaksi.bayar.toLocaleString('id-ID');
+    document.getElementById('printKembali').innerText = transaksi.kembalian.toLocaleString('id-ID');
 
     window.print();
   }
@@ -1016,14 +1063,14 @@
         <tr style="display: table; width: 100%; table-layout: fixed;">
           <td style="width: 65px;">${t._pending ? '⏳ ' : ''}${t.waktu}</td>
           <td>${rincian}</td>
-          <td style="text-align: right;">Rp ${t.total.toLocaleString()}</td>
+          <td style="text-align: right;">Rp ${t.total.toLocaleString('id-ID')}</td>
           <td style="width: 70px; text-align: center;">
             <button class="btn-del-item" style="background:#3498db" onclick="cetakStrukUlang(${index})">🖨️</button>
             <button class="btn-del-item" onclick="hapusItemLaporan(${t.id})">✕</button>
           </td>
         </tr>`;
     });
-    document.getElementById('totalOmset').innerText = omset.toLocaleString();
+    document.getElementById('totalOmset').innerText = omset.toLocaleString('id-ID');
     renderRingkasan();
     renderProdukFavorit();
     renderRiwayatPesanan();
@@ -1038,7 +1085,7 @@
         <tr style="display: table; width: 100%; table-layout: fixed;">
           <td style="width: 65px;">${t._pending ? '⏳ ' : ''}${t.waktu}</td>
           <td>${rincian}</td>
-          <td style="width: 75px; text-align: right;">Rp ${t.total.toLocaleString()}</td>
+          <td style="width: 75px; text-align: right;">Rp ${t.total.toLocaleString('id-ID')}</td>
           <td style="width: 60px; text-align: center;">
             <button class="btn-del-item" style="background:#27ae60" onclick="ulangiPesanan(${indexAsli})">🔁</button>
           </td>
@@ -1057,15 +1104,16 @@
   }
 
   // ===================== SISTEM OFFLINE / ANTRIAN SINKRON =====================
-  let antrianOffline = { transaksi: [], pengeluaran: [] };
+  let antrianOffline = { transaksi: [], pengeluaran: [], stok: [] };
 
   function muatAntrianOffline() {
     try {
       const simpanan = JSON.parse(localStorage.getItem('antrian_offline'));
       if (simpanan) antrianOffline = simpanan;
-    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [] }; }
+    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [], stok: [] }; }
     if (!antrianOffline.transaksi) antrianOffline.transaksi = [];
     if (!antrianOffline.pengeluaran) antrianOffline.pengeluaran = [];
+    if (!antrianOffline.stok) antrianOffline.stok = [];
   }
 
   function simpanAntrianKeStorage() {
@@ -1099,18 +1147,27 @@
     }
     antrianOffline.pengeluaran = sisaPengeluaran;
 
+    const sisaStok = [];
+    for (const s of antrianOffline.stok) {
+      const dataBersih = { ...s }; delete dataBersih._pending;
+      const { error } = await _supabase.from('stok_harian').insert([dataBersih]);
+      if (error) sisaStok.push(s); else adaYangSukses = true;
+    }
+    antrianOffline.stok = sisaStok;
+
     simpanAntrianKeStorage();
     updateStatusBadge();
 
     if (adaYangSukses) {
       muatLaporanOnline();
       muatPengeluaran();
+      muatStok();
       muatRiwayatLaporan();
     }
   }
 
   function jumlahAntrian() {
-    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length;
+    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length + antrianOffline.stok.length;
   }
 
   function updateStatusBadge() {
@@ -1162,7 +1219,7 @@
         <button class="btn-product" onclick="pilihProduk('${p.nama}', ${p.harga})">
           ${imgTag}
           <div>${p.nama}</div>
-          <span>Rp ${p.harga.toLocaleString()}</span>
+          <span>Rp ${p.harga.toLocaleString('id-ID')}</span>
         </button>`;
     });
   }
@@ -1262,14 +1319,158 @@
         <tr style="display: table; width: 100%; table-layout: fixed;">
           <td style="width: 65px;">${p._pending ? '⏳ ' : ''}${p.waktu}</td>
           <td>${katIcon[p.kategori] || '🧾'} ${p.keterangan}</td>
-          <td style="width: 85px; text-align: right;">Rp ${p.nominal.toLocaleString()}</td>
+          <td style="width: 85px; text-align: right;">Rp ${p.nominal.toLocaleString('id-ID')}</td>
           <td style="width: 40px; text-align: center;">
             <button class="btn-del-item" onclick="hapusPengeluaran(${p.id})">✕</button>
           </td>
         </tr>`;
     });
-    document.getElementById('totalPengeluaran').innerText = total.toLocaleString();
+    document.getElementById('totalPengeluaran').innerText = total.toLocaleString('id-ID');
     renderRingkasan();
+  }
+
+  async function muatStok() {
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_stok');
+      if (cache) { stokHarian = JSON.parse(cache); renderStok(); }
+      return;
+    }
+    const { data, error } = await _supabase.from('stok_harian').select('*').eq('arsip', false).order('created_at', { ascending: false });
+    if (!error && data) {
+      stokHarian = data;
+      simpanCacheAman('cache_stok', JSON.stringify(data));
+      renderStok();
+    } else {
+      const cache = localStorage.getItem('cache_stok');
+      if (cache) { stokHarian = JSON.parse(cache); renderStok(); }
+    }
+  }
+
+  async function tambahStok() {
+    const namaBarang = document.getElementById('stokNama').value.trim();
+    const jumlah = parseInt(document.getElementById('stokJumlah').value);
+
+    if (!namaBarang || isNaN(jumlah) || jumlah < 0) { alert('Isi nama barang dan jumlah dengan benar!'); return; }
+
+    const now = new Date();
+    const waktu = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const tanggal = now.toLocaleDateString('id-ID');
+    const itemBaru = { id: Date.now(), nama_barang: namaBarang, jumlah, tanggal, waktu, arsip: false };
+
+    const bersihkanForm = () => {
+      document.getElementById('stokNama').value = '';
+      document.getElementById('stokJumlah').value = '';
+    };
+
+    if (!navigator.onLine) {
+      itemBaru._pending = true;
+      simpanKeAntrianOffline('stok', itemBaru);
+      stokHarian.unshift(itemBaru);
+      renderStok();
+      bersihkanForm();
+      return;
+    }
+
+    try {
+      const { error } = await _supabase.from('stok_harian').insert([itemBaru]);
+      if (!error) {
+        bersihkanForm();
+        muatStok();
+      } else {
+        itemBaru._pending = true;
+        simpanKeAntrianOffline('stok', itemBaru);
+        stokHarian.unshift(itemBaru);
+        renderStok();
+        bersihkanForm();
+      }
+    } catch (e) {
+      itemBaru._pending = true;
+      simpanKeAntrianOffline('stok', itemBaru);
+      stokHarian.unshift(itemBaru);
+      renderStok();
+      bersihkanForm();
+    }
+  }
+
+  async function hapusStok(id) {
+    if (prompt('Masukkan PIN Keamanan:') === PIN_RAHASIA) {
+      const { error } = await _supabase.from('stok_harian').delete().eq('id', id);
+      if (!error) muatStok();
+    } else { alert('PIN Salah!'); }
+  }
+
+  function renderStok() {
+    const tbody = document.getElementById('tabelStok'); tbody.innerHTML = '';
+    stokHarian.forEach(s => {
+      tbody.innerHTML += `
+        <tr style="display: table; width: 100%; table-layout: fixed;">
+          <td style="width: 65px;">${s._pending ? '⏳ ' : ''}${s.waktu}</td>
+          <td>${s.nama_barang}</td>
+          <td style="width: 70px; text-align: right;">${s.jumlah.toLocaleString('id-ID')}</td>
+          <td style="width: 40px; text-align: center;">
+            <button class="btn-del-item" onclick="hapusStok(${s.id})">✕</button>
+          </td>
+        </tr>`;
+    });
+  }
+
+  async function muatRiwayatStok() {
+    const bangunGrup = (data) => {
+      riwayatStok = {};
+      data.forEach(s => {
+        if (!riwayatStok[s.tanggal]) riwayatStok[s.tanggal] = [];
+        riwayatStok[s.tanggal].push(s);
+      });
+      renderRiwayatStok();
+    };
+
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_riwayat_stok');
+      if (cache) bangunGrup(JSON.parse(cache));
+      return;
+    }
+
+    const batasWaktu = new Date();
+    batasWaktu.setDate(batasWaktu.getDate() - 90);
+    const { data, error } = await _supabase.from('stok_harian').select('*').gte('created_at', batasWaktu.toISOString()).order('created_at', { ascending: false });
+    if (!error && data) {
+      simpanCacheAman('cache_riwayat_stok', JSON.stringify(data));
+      bangunGrup(data);
+    } else {
+      const cache = localStorage.getItem('cache_riwayat_stok');
+      if (cache) bangunGrup(JSON.parse(cache));
+    }
+  }
+
+  function renderRiwayatStok() {
+    const container = document.getElementById('daftarRiwayatStok');
+    const tanggalList = Object.keys(riwayatStok);
+
+    if (tanggalList.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#888; padding: 20px 0;">Belum ada riwayat stok.</p>';
+      return;
+    }
+
+    container.innerHTML = '';
+    tanggalList.forEach(tgl => {
+      const daftar = riwayatStok[tgl];
+      let baris = '';
+      daftar.forEach(s => {
+        baris += `
+          <tr style="display: table; width: 100%; table-layout: fixed;">
+            <td style="width: 60px;">${s.waktu}</td>
+            <td>${s.nama_barang}</td>
+            <td style="width: 70px; text-align: right;">${s.jumlah.toLocaleString('id-ID')}</td>
+          </tr>`;
+      });
+      container.innerHTML += `
+        <details class="riwayat-tanggal-group">
+          <summary>📅 ${tgl} <span>${daftar.length} item</span></summary>
+          <table style="margin-top: 8px;">
+            <tbody style="display: table; width: 100%; table-layout: fixed;">${baris}</tbody>
+          </table>
+        </details>`;
+    });
   }
 
   async function hapusItemLaporan(id) {
@@ -1280,9 +1481,9 @@
   }
 
   async function hapusLaporan() {
-    if (laporanHarian.length === 0 && pengeluaranHarian.length === 0) return;
+    if (laporanHarian.length === 0 && pengeluaranHarian.length === 0 && stokHarian.length === 0) return;
     if (prompt('Masukkan PIN Keamanan untuk RESET ALL:') === PIN_RAHASIA) {
-      if (confirm('Laporan & Pengeluaran hari ini akan dipindah ke arsip (tidak dihapus permanen). Lanjutkan?')) {
+      if (confirm('Laporan, Pengeluaran & Stok hari ini akan dipindah ke arsip (tidak dihapus permanen). Lanjutkan?')) {
         if (laporanHarian.length > 0) {
           const idList = laporanHarian.map(t => t.id);
           await _supabase.from('laporan_transaksi').update({ arsip: true }).in('id', idList);
@@ -1291,10 +1492,17 @@
           const idListPengeluaran = pengeluaranHarian.map(p => p.id);
           await _supabase.from('pengeluaran').update({ arsip: true }).in('id', idListPengeluaran);
         }
+        if (stokHarian.length > 0) {
+          const idListStok = stokHarian.map(s => s.id);
+          await _supabase.from('stok_harian').update({ arsip: true }).in('id', idListStok);
+        }
         await simpanWaktuReset();
         muatLaporanOnline();
         muatPengeluaran();
+        muatStok();
         muatRiwayatLaporan();
+        muatRiwayatPengeluaran();
+        muatRiwayatStok();
       }
     } else { alert('PIN Salah!'); }
   }
@@ -1307,6 +1515,30 @@
   }
 
   let kasAwal = { tanggal: null, nominal: 0 };
+
+  async function muatNoWA() {
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_no_wa');
+      if (cache) document.getElementById('noWA').value = cache;
+      return;
+    }
+    const { data, error } = await _supabase.from('pengaturan').select('*').eq('key', 'no_wa_laporan').maybeSingle();
+    if (!error && data && data.value) {
+      document.getElementById('noWA').value = data.value;
+      simpanCacheAman('cache_no_wa', data.value);
+    } else {
+      const cache = localStorage.getItem('cache_no_wa');
+      if (cache) document.getElementById('noWA').value = cache;
+    }
+  }
+
+  async function simpanNoWA() {
+    const noWA = document.getElementById('noWA').value.trim();
+    if (!noWA) return;
+    simpanCacheAman('cache_no_wa', noWA);
+    if (!navigator.onLine) return;
+    await _supabase.from('pengaturan').upsert({ key: 'no_wa_laporan', value: noWA });
+  }
 
   async function muatKasAwal() {
     const sekarang = tanggalHariIni();
@@ -1439,6 +1671,13 @@
         const idListPengeluaran = pengeluaranHarian.map(p => p.id);
         await _supabase.from('pengeluaran').update({ arsip: true }).in('id', idListPengeluaran);
         muatPengeluaran();
+        muatRiwayatPengeluaran();
+      }
+      if (stokHarian.length > 0) {
+        const idListStok = stokHarian.map(s => s.id);
+        await _supabase.from('stok_harian').update({ arsip: true }).in('id', idListStok);
+        muatStok();
+        muatRiwayatStok();
       }
       await simpanWaktuReset();
     }
@@ -1534,26 +1773,44 @@
     const noWA = document.getElementById('noWA').value.trim();
     if (!noWA || laporanHarian.length === 0) { alert('Isi No WA & pastikan ada transaksi!'); return; }
     const tgl = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+    // Rangkum terjual per produk (bukan per transaksi), biar lebih ringkas dibaca
+    const agregasiProduk = {};
     let totalOmset = 0;
-    let pesan = `*REKAP LAPORAN PENJUALAN ONLINE*\nTanggal: ${tgl}\n------------------------------------\n\n`;
-    laporanHarian.forEach((t, index) => {
-      pesan += `*${index + 1}. Jam ${t.waktu}*\n`;
-      t.items.forEach(item => { pesan += `   • ${item.nama} x${item.qty} = Rp ${item.subtotal.toLocaleString()}\n`; });
-      pesan += `   *Total:* Rp ${t.total.toLocaleString()}\n\n`;
+    laporanHarian.forEach(t => {
+      t.items.forEach(item => {
+        if (!agregasiProduk[item.nama]) agregasiProduk[item.nama] = { qty: 0, subtotal: 0 };
+        agregasiProduk[item.nama].qty += item.qty;
+        agregasiProduk[item.nama].subtotal += item.subtotal;
+      });
       totalOmset += t.total;
     });
 
+    let pesan = `*REKAP LAPORAN PENJUALAN ONLINE*\nTanggal: ${tgl}\n------------------------------------\n\n`;
+    pesan += `*PRODUK TERJUAL*\n`;
+    Object.entries(agregasiProduk).forEach(([nama, info]) => {
+      pesan += `• ${nama} x${info.qty} = Rp ${info.subtotal.toLocaleString('id-ID')}\n`;
+    });
+
     const totalPengeluaranWA = pengeluaranHarian.reduce((sum, p) => sum + p.nominal, 0);
+    pesan += `\n------------------------------------\n`;
+    pesan += `*PENGELUARAN*\n`;
+    if (pengeluaranHarian.length === 0) {
+      pesan += `Tidak ada pengeluaran hari ini\n`;
+    } else {
+      pengeluaranHarian.forEach(p => { pesan += `• ${p.keterangan} = Rp ${p.nominal.toLocaleString('id-ID')}\n`; });
+    }
+
     const labaBersihWA = totalOmset - totalPengeluaranWA;
     const kasAkhirWA = kasAwal.nominal + totalOmset - totalPengeluaranWA;
 
-    pesan += `------------------------------------\n`;
+    pesan += `\n------------------------------------\n`;
     pesan += `*RINGKASAN*\n`;
-    pesan += `Kas Awal: Rp ${kasAwal.nominal.toLocaleString()}\n`;
-    pesan += `Omset Penjualan: Rp ${totalOmset.toLocaleString()}\n`;
-    pesan += `Pengeluaran: Rp ${totalPengeluaranWA.toLocaleString()}\n`;
-    pesan += `*Laba Bersih:* Rp ${labaBersihWA.toLocaleString()}\n`;
-    pesan += `*Kas Akhir di Laci (estimasi): Rp ${kasAkhirWA.toLocaleString()}*\n`;
+    pesan += `Kas Awal: Rp ${kasAwal.nominal.toLocaleString('id-ID')}\n`;
+    pesan += `Omset Penjualan: Rp ${totalOmset.toLocaleString('id-ID')}\n`;
+    pesan += `Pengeluaran: Rp ${totalPengeluaranWA.toLocaleString('id-ID')}\n`;
+    pesan += `*Laba Bersih:* Rp ${labaBersihWA.toLocaleString('id-ID')}\n`;
+    pesan += `*Kas Akhir di Laci (estimasi): Rp ${kasAkhirWA.toLocaleString('id-ID')}*\n`;
 
     window.open(`https://wa.me/${noWA}?text=${encodeURIComponent(pesan)}`, '_blank');
   }
@@ -1612,12 +1869,77 @@
           <tr style="display: table; width: 100%; table-layout: fixed;">
             <td style="width: 60px;">${t.waktu}</td>
             <td>${rincian}</td>
-            <td style="width: 85px; text-align: right;">Rp ${t.total.toLocaleString()}</td>
+            <td style="width: 85px; text-align: right;">Rp ${t.total.toLocaleString('id-ID')}</td>
           </tr>`;
       });
       container.innerHTML += `
         <details class="riwayat-tanggal-group">
-          <summary>📅 ${tgl} <span>Rp ${total.toLocaleString()} &middot; ${transaksi.length}x</span></summary>
+          <summary>📅 ${tgl} <span>Rp ${total.toLocaleString('id-ID')} &middot; ${transaksi.length}x</span></summary>
+          <table style="margin-top: 8px;">
+            <tbody style="display: table; width: 100%; table-layout: fixed;">${baris}</tbody>
+          </table>
+          <button class="btn-wa" style="margin-top: 8px;" onclick="kirimRiwayatWA('${tgl}')">📲 Kirim Rekap Tanggal Ini ke WhatsApp</button>
+        </details>`;
+    });
+  }
+
+  let riwayatPengeluaran = {};
+  let riwayatStok = {};
+
+  async function muatRiwayatPengeluaran() {
+    const bangunGrup = (data) => {
+      riwayatPengeluaran = {};
+      data.forEach(p => {
+        if (!riwayatPengeluaran[p.tanggal]) riwayatPengeluaran[p.tanggal] = [];
+        riwayatPengeluaran[p.tanggal].push(p);
+      });
+      renderRiwayatPengeluaran();
+    };
+
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_riwayat_pengeluaran');
+      if (cache) bangunGrup(JSON.parse(cache));
+      return;
+    }
+
+    const batasWaktu = new Date();
+    batasWaktu.setDate(batasWaktu.getDate() - 90);
+    const { data, error } = await _supabase.from('pengeluaran').select('*').gte('created_at', batasWaktu.toISOString()).order('created_at', { ascending: false });
+    if (!error && data) {
+      simpanCacheAman('cache_riwayat_pengeluaran', JSON.stringify(data));
+      bangunGrup(data);
+    } else {
+      const cache = localStorage.getItem('cache_riwayat_pengeluaran');
+      if (cache) bangunGrup(JSON.parse(cache));
+    }
+  }
+
+  function renderRiwayatPengeluaran() {
+    const container = document.getElementById('daftarRiwayatPengeluaran');
+    const tanggalList = Object.keys(riwayatPengeluaran);
+
+    if (tanggalList.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#888; padding: 20px 0;">Belum ada riwayat pengeluaran.</p>';
+      return;
+    }
+
+    const katIcon = { operasional: '⚡', stok: '📦', gaji: '👤', lainnya: '🧾' };
+    container.innerHTML = '';
+    tanggalList.forEach(tgl => {
+      const daftar = riwayatPengeluaran[tgl];
+      const total = daftar.reduce((sum, p) => sum + p.nominal, 0);
+      let baris = '';
+      daftar.forEach(p => {
+        baris += `
+          <tr style="display: table; width: 100%; table-layout: fixed;">
+            <td style="width: 60px;">${p.waktu}</td>
+            <td>${katIcon[p.kategori] || '🧾'} ${p.keterangan}</td>
+            <td style="width: 85px; text-align: right;">Rp ${p.nominal.toLocaleString('id-ID')}</td>
+          </tr>`;
+      });
+      container.innerHTML += `
+        <details class="riwayat-tanggal-group">
+          <summary>📅 ${tgl} <span>Rp ${total.toLocaleString('id-ID')} &middot; ${daftar.length}x</span></summary>
           <table style="margin-top: 8px;">
             <tbody style="display: table; width: 100%; table-layout: fixed;">${baris}</tbody>
           </table>
@@ -1629,18 +1951,47 @@
   function kirimRiwayatWA(tgl) {
     const noWA = document.getElementById('noWA').value.trim();
     const transaksi = riwayatLaporan[tgl] || [];
+    const daftarPengeluaran = riwayatPengeluaran[tgl] || [];
     if (!noWA) { alert('Isi dulu No WA di card Laporan Penjualan!'); return; }
-    if (transaksi.length === 0) return;
+    if (transaksi.length === 0 && daftarPengeluaran.length === 0) return;
 
+    const agregasiProduk = {};
     let totalOmset = 0;
-    let pesan = `*REKAP LAPORAN PENJUALAN*\nTanggal: ${tgl}\n------------------------------------\n\n`;
-    transaksi.forEach((t, index) => {
-      pesan += `*${index + 1}. Jam ${t.waktu}*\n`;
-      t.items.forEach(item => { pesan += `   • ${item.nama} x${item.qty} = Rp ${item.subtotal.toLocaleString()}\n`; });
-      pesan += `   *Total:* Rp ${t.total.toLocaleString()}\n\n`;
+    transaksi.forEach(t => {
+      t.items.forEach(item => {
+        if (!agregasiProduk[item.nama]) agregasiProduk[item.nama] = { qty: 0, subtotal: 0 };
+        agregasiProduk[item.nama].qty += item.qty;
+        agregasiProduk[item.nama].subtotal += item.subtotal;
+      });
       totalOmset += t.total;
     });
-    pesan += `------------------------------------\n*TOTAL OMSET:* Rp ${totalOmset.toLocaleString()}\n`;
+
+    let pesan = `*REKAP LAPORAN PENJUALAN*\nTanggal: ${tgl}\n------------------------------------\n\n`;
+    pesan += `*PRODUK TERJUAL*\n`;
+    if (Object.keys(agregasiProduk).length === 0) {
+      pesan += `Tidak ada penjualan\n`;
+    } else {
+      Object.entries(agregasiProduk).forEach(([nama, info]) => {
+        pesan += `• ${nama} x${info.qty} = Rp ${info.subtotal.toLocaleString('id-ID')}\n`;
+      });
+    }
+
+    const totalPengeluaranTgl = daftarPengeluaran.reduce((sum, p) => sum + p.nominal, 0);
+    pesan += `\n------------------------------------\n`;
+    pesan += `*PENGELUARAN*\n`;
+    if (daftarPengeluaran.length === 0) {
+      pesan += `Tidak ada pengeluaran\n`;
+    } else {
+      daftarPengeluaran.forEach(p => { pesan += `• ${p.keterangan} = Rp ${p.nominal.toLocaleString('id-ID')}\n`; });
+    }
+
+    const labaBersihTgl = totalOmset - totalPengeluaranTgl;
+    pesan += `\n------------------------------------\n`;
+    pesan += `*RINGKASAN*\n`;
+    pesan += `Omset Penjualan: Rp ${totalOmset.toLocaleString('id-ID')}\n`;
+    pesan += `Pengeluaran: Rp ${totalPengeluaranTgl.toLocaleString('id-ID')}\n`;
+    pesan += `*Laba Bersih:* Rp ${labaBersihTgl.toLocaleString('id-ID')}\n`;
+
     window.open(`https://wa.me/${noWA}?text=${encodeURIComponent(pesan)}`, '_blank');
   }
 </script>
