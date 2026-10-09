@@ -118,6 +118,24 @@
     .splash-hidden { opacity: 0; visibility: hidden; }
 
     /* --- LAYOUT APLIKASI --- */
+    .ticker-hutang {
+      position: sticky; top: 0; z-index: 998;
+      margin: -15px -15px 15px -15px; /* tembus padding body biar full lebar & nempel atas layar */
+      background: #c0392b; color: #fff; overflow: hidden; white-space: nowrap;
+      padding: 7px 0; font-size: 12.5px; font-weight: 600;
+      display: none; cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .ticker-hutang.show { display: block; }
+    .ticker-hutang-track {
+      display: inline-block; padding-left: 100%;
+      animation: tickerScroll linear infinite;
+    }
+    @keyframes tickerScroll {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
+
     .app-header {
       max-width: 1200px; margin: 0 auto 15px auto;
       display: flex; justify-content: space-between; align-items: center;
@@ -272,6 +290,11 @@
   <div class="splash-loader"></div>
 </div>
 
+<!-- TEKS BERJALAN HUTANG BELUM LUNAS -->
+<div class="ticker-hutang" id="tickerHutang" onclick="gantiHalaman('hutang')">
+  <div class="ticker-hutang-track" id="tickerHutangTrack"></div>
+</div>
+
 <!-- HEADER APLIKASI -->
 <div class="app-header">
   <button class="hamburger-btn" onclick="toggleMenu()">☰</button>
@@ -294,6 +317,9 @@
   </button>
   <button class="drawer-item" id="navBtn-stok" onclick="gantiHalaman('stok')">
     <span class="nav-icon">📋</span> Stok
+  </button>
+  <button class="drawer-item" id="navBtn-hutang" onclick="gantiHalaman('hutang')">
+    <span class="nav-icon">💳</span> Hutang/Piutang
   </button>
   <button class="drawer-item" id="navBtn-produk" onclick="gantiHalaman('produk')">
     <span class="nav-icon">📦</span> Produk
@@ -608,6 +634,45 @@
   </div>
   <!-- END PAGE STOK -->
 
+  <!-- PAGE: HUTANG/PIUTANG -->
+  <div id="page-hutang" class="page-content">
+    <div class="card">
+      <h2>💳 Catat Hutang</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Catat siapa yang ngutang, barang apa, dan berapa nominalnya. Muncul di teks berjalan atas sampai dilunasin.</p>
+      <div class="form-group">
+        <label>Nama</label>
+        <input type="text" id="hutangNama" placeholder="Contoh: Budi">
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <input type="text" id="hutangBarang" placeholder="Barang (Kopi, Rokok, dll)">
+        <input type="number" id="hutangNominal" style="width: 120px;" placeholder="Nominal">
+      </div>
+      <button class="btn-add" style="margin-top: 8px;" onclick="tambahHutang()">+ Catat Hutang</button>
+    </div>
+
+    <div class="card">
+      <h2>📋 Belum Lunas</h2>
+      <table style="max-height: 300px; display: block; overflow-y: auto;">
+        <thead>
+          <tr style="display: table; width: 100%; table-layout: fixed;">
+            <th>Nama &amp; Barang</th>
+            <th style="width: 85px; text-align: right;">Nominal</th>
+            <th style="width: 90px; text-align: center;">Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="tabelHutang" style="display: table; width: 100%; table-layout: fixed;"></tbody>
+      </table>
+      <div class="total-box" style="font-size: 16px; padding-top: 10px; border-top: 2px solid var(--light-color);">Total Belum Lunas: Rp <span id="totalHutang">0</span></div>
+    </div>
+
+    <div class="card">
+      <h2>🗂️ Riwayat Hutang (Lunas)</h2>
+      <p style="color:#888; font-size: 13px; margin-top: -8px;">Hutang yang sudah dibayar, section sendiri terpisah dari yang masih jalan.</p>
+      <div id="daftarRiwayatHutang"></div>
+    </div>
+  </div>
+  <!-- END PAGE HUTANG -->
+
 <!-- AREA CETAK STRUK THERMAL -->
 <div id="receipt-print">
   <div class="receipt-header">
@@ -654,6 +719,8 @@
   let laporanHarian = [];
   let pengeluaranHarian = [];
   let stokHarian = [];
+  let hutangList = [];
+  let riwayatHutangLunas = [];
   let currentCategory = 'all';
 
   // FIX: helper simpan ke localStorage yang aman. localStorage punya batas
@@ -689,6 +756,8 @@
     await jalankanLangkahAman('muatLaporanOnline', muatLaporanOnline);
     await jalankanLangkahAman('muatPengeluaran', muatPengeluaran);
     await jalankanLangkahAman('muatStok', muatStok);
+    await jalankanLangkahAman('muatHutang', muatHutang);
+    await jalankanLangkahAman('muatRiwayatHutangLunas', muatRiwayatHutangLunas);
     await jalankanLangkahAman('muatKasAwal', muatKasAwal);
     await jalankanLangkahAman('muatPin', muatPin);
     await jalankanLangkahAman('muatRiwayatLaporan', muatRiwayatLaporan);
@@ -714,6 +783,7 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'laporan_transaksi' }, () => muatLaporanOnline())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pengeluaran' }, () => { muatPengeluaran(); muatRiwayatPengeluaran(); })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stok_harian' }, () => { muatStok(); muatRiwayatStok(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hutang' }, () => { muatHutang(); muatRiwayatHutangLunas(); })
       .subscribe();
   }
 
@@ -1104,16 +1174,17 @@
   }
 
   // ===================== SISTEM OFFLINE / ANTRIAN SINKRON =====================
-  let antrianOffline = { transaksi: [], pengeluaran: [], stok: [] };
+  let antrianOffline = { transaksi: [], pengeluaran: [], stok: [], hutang: [] };
 
   function muatAntrianOffline() {
     try {
       const simpanan = JSON.parse(localStorage.getItem('antrian_offline'));
       if (simpanan) antrianOffline = simpanan;
-    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [], stok: [] }; }
+    } catch (e) { antrianOffline = { transaksi: [], pengeluaran: [], stok: [], hutang: [] }; }
     if (!antrianOffline.transaksi) antrianOffline.transaksi = [];
     if (!antrianOffline.pengeluaran) antrianOffline.pengeluaran = [];
     if (!antrianOffline.stok) antrianOffline.stok = [];
+    if (!antrianOffline.hutang) antrianOffline.hutang = [];
   }
 
   function simpanAntrianKeStorage() {
@@ -1155,6 +1226,14 @@
     }
     antrianOffline.stok = sisaStok;
 
+    const sisaHutang = [];
+    for (const h of antrianOffline.hutang) {
+      const dataBersih = { ...h }; delete dataBersih._pending;
+      const { error } = await _supabase.from('hutang').insert([dataBersih]);
+      if (error) sisaHutang.push(h); else adaYangSukses = true;
+    }
+    antrianOffline.hutang = sisaHutang;
+
     simpanAntrianKeStorage();
     updateStatusBadge();
 
@@ -1162,12 +1241,13 @@
       muatLaporanOnline();
       muatPengeluaran();
       muatStok();
+      muatHutang();
       muatRiwayatLaporan();
     }
   }
 
   function jumlahAntrian() {
-    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length + antrianOffline.stok.length;
+    return antrianOffline.transaksi.length + antrianOffline.pengeluaran.length + antrianOffline.stok.length + antrianOffline.hutang.length;
   }
 
   function updateStatusBadge() {
@@ -1471,6 +1551,167 @@
           </table>
         </details>`;
     });
+  }
+
+  // ===================== HUTANG / PIUTANG =====================
+  function escapeHtml(t) {
+    return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function muatHutang() {
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_hutang');
+      if (cache) { hutangList = JSON.parse(cache); renderHutang(); }
+      return;
+    }
+    const { data, error } = await _supabase.from('hutang').select('*').eq('lunas', false).order('created_at', { ascending: false });
+    if (!error && data) {
+      hutangList = data;
+      simpanCacheAman('cache_hutang', JSON.stringify(data));
+      renderHutang();
+    } else {
+      const cache = localStorage.getItem('cache_hutang');
+      if (cache) { hutangList = JSON.parse(cache); renderHutang(); }
+    }
+  }
+
+  async function tambahHutang() {
+    const nama = document.getElementById('hutangNama').value.trim();
+    const barang = document.getElementById('hutangBarang').value.trim();
+    const nominal = parseInt(document.getElementById('hutangNominal').value);
+
+    if (!nama || !barang || isNaN(nominal) || nominal <= 0) { alert('Isi nama, barang, dan nominal dengan benar!'); return; }
+
+    const now = new Date();
+    const waktu = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const tanggal = now.toLocaleDateString('id-ID');
+    const itemBaru = { id: Date.now(), nama, barang, nominal, tanggal, waktu, lunas: false };
+
+    const bersihkanForm = () => {
+      document.getElementById('hutangNama').value = '';
+      document.getElementById('hutangBarang').value = '';
+      document.getElementById('hutangNominal').value = '';
+    };
+
+    const simpanLokal = () => {
+      itemBaru._pending = true;
+      simpanKeAntrianOffline('hutang', itemBaru);
+      hutangList.unshift(itemBaru);
+      simpanCacheAman('cache_hutang', JSON.stringify(hutangList));
+      renderHutang();
+      bersihkanForm();
+    };
+
+    if (!navigator.onLine) { simpanLokal(); return; }
+
+    try {
+      const { error } = await _supabase.from('hutang').insert([itemBaru]);
+      if (!error) { bersihkanForm(); muatHutang(); }
+      else simpanLokal();
+    } catch (e) { simpanLokal(); }
+  }
+
+  async function lunasHutang(id) {
+    const h = hutangList.find(x => x.id === id);
+    if (!h) return;
+    if (!confirm(`Tandai hutang ${h.nama} (Rp ${h.nominal.toLocaleString('id-ID')}) sebagai LUNAS?`)) return;
+    if (!navigator.onLine) { alert('Tandai lunas butuh koneksi internet, biar data di semua HP tetap sinkron. Coba lagi kalau internet nyambung.'); return; }
+    const tanggalLunas = new Date().toLocaleDateString('id-ID');
+    const { error } = await _supabase.from('hutang').update({ lunas: true, tanggal_lunas: tanggalLunas }).eq('id', id);
+    if (!error) { muatHutang(); muatRiwayatHutangLunas(); }
+    else alert('Gagal menandai lunas: ' + error.message);
+  }
+
+  async function hapusHutang(id) {
+    if (prompt('Masukkan PIN Keamanan:') === PIN_RAHASIA) {
+      const { error } = await _supabase.from('hutang').delete().eq('id', id);
+      if (!error) { muatHutang(); muatRiwayatHutangLunas(); }
+    } else { alert('PIN Salah!'); }
+  }
+
+  function renderHutang() {
+    const tbody = document.getElementById('tabelHutang'); tbody.innerHTML = '';
+    let total = 0;
+    hutangList.forEach(h => {
+      total += h.nominal;
+      tbody.innerHTML += `
+        <tr style="display: table; width: 100%; table-layout: fixed;">
+          <td>
+            <b>${h._pending ? '⏳ ' : ''}${escapeHtml(h.nama)}</b><br>
+            <span style="font-size: 12px; color: #888;">${escapeHtml(h.barang)} &middot; ${h.tanggal}</span>
+          </td>
+          <td style="width: 85px; text-align: right;">Rp ${h.nominal.toLocaleString('id-ID')}</td>
+          <td style="width: 90px; text-align: center;">
+            <button class="btn-del-item" style="background:#27ae60" onclick="lunasHutang(${h.id})">✓ Lunas</button>
+            <button class="btn-del-item" onclick="hapusHutang(${h.id})">✕</button>
+          </td>
+        </tr>`;
+    });
+    if (hutangList.length === 0) {
+      tbody.innerHTML = '<tr style="display: table; width: 100%;"><td style="text-align:center; color:#888; padding: 16px 0;">Tidak ada hutang yang belum lunas 🎉</td></tr>';
+    }
+    document.getElementById('totalHutang').innerText = total.toLocaleString('id-ID');
+    renderTickerHutang();
+  }
+
+  function renderTickerHutang() {
+    const ticker = document.getElementById('tickerHutang');
+    const track = document.getElementById('tickerHutangTrack');
+    if (!ticker || !track) return;
+
+    if (hutangList.length === 0) {
+      ticker.classList.remove('show');
+      track.innerText = '';
+      return;
+    }
+
+    const teks = hutangList
+      .map(h => `${escapeHtml(h.nama)} - ${escapeHtml(h.barang)} - Rp ${h.nominal.toLocaleString('id-ID')}`)
+      .join('   •   ');
+    track.innerHTML = `⚠️ HUTANG BELUM LUNAS (${hutangList.length}):   ${teks}`;
+    // Makin panjang teksnya, makin lama durasi scroll-nya, biar kecepatan baca tetap nyaman
+    const durasi = Math.max(15, Math.round(track.innerText.length * 0.22));
+    track.style.animationDuration = durasi + 's';
+    ticker.classList.add('show');
+  }
+
+  async function muatRiwayatHutangLunas() {
+    if (!navigator.onLine) {
+      const cache = localStorage.getItem('cache_riwayat_hutang');
+      if (cache) { riwayatHutangLunas = JSON.parse(cache); renderRiwayatHutangLunas(); }
+      return;
+    }
+    const batasWaktu = new Date();
+    batasWaktu.setDate(batasWaktu.getDate() - 90);
+    const { data, error } = await _supabase.from('hutang').select('*').eq('lunas', true).gte('created_at', batasWaktu.toISOString()).order('created_at', { ascending: false });
+    if (!error && data) {
+      riwayatHutangLunas = data;
+      simpanCacheAman('cache_riwayat_hutang', JSON.stringify(data));
+      renderRiwayatHutangLunas();
+    } else {
+      const cache = localStorage.getItem('cache_riwayat_hutang');
+      if (cache) { riwayatHutangLunas = JSON.parse(cache); renderRiwayatHutangLunas(); }
+    }
+  }
+
+  function renderRiwayatHutangLunas() {
+    const container = document.getElementById('daftarRiwayatHutang');
+    if (riwayatHutangLunas.length === 0) {
+      container.innerHTML = '<p style="text-align:center; color:#888; padding: 20px 0;">Belum ada hutang yang dilunasi.</p>';
+      return;
+    }
+    let baris = '';
+    riwayatHutangLunas.forEach(h => {
+      baris += `
+        <tr style="display: table; width: 100%; table-layout: fixed;">
+          <td>
+            <b>${escapeHtml(h.nama)}</b><br>
+            <span style="font-size: 12px; color: #888;">${escapeHtml(h.barang)} &middot; hutang ${h.tanggal}${h.tanggal_lunas ? ' &middot; lunas ' + h.tanggal_lunas : ''}</span>
+          </td>
+          <td style="width: 95px; text-align: right;">Rp ${h.nominal.toLocaleString('id-ID')}</td>
+        </tr>`;
+    });
+    container.innerHTML = `<table style="max-height: 300px; display: block; overflow-y: auto;"><tbody style="display: table; width: 100%; table-layout: fixed;">${baris}</tbody></table>`;
   }
 
   async function hapusItemLaporan(id) {
